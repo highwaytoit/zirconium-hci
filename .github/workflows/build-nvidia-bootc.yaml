@@ -19,10 +19,6 @@ concurrency:
 
 env:
   DEFAULT_TAG: latest
-  IMAGE_DESC: "Opinionated niri + bootc image"
-  IMAGE_KEYWORDS: "bootc,niri"
-  IMAGE_LICENSE: AGPL-2.0
-  IMAGE_LOGO_URL: "https://avatars.githubusercontent.com/u/237492973?s=400&v=4"
   IMAGE_NAME: zirconium-hci-nvidia
   IMAGE_REGISTRY: "ghcr.io/${{ github.repository_owner }}"
 
@@ -34,13 +30,8 @@ jobs:
       packages: write
       id-token: write
     timeout-minutes: 60
-    strategy:
-      fail-fast: false
-      matrix:
-        platform:
-          - amd64
-          - arm64
-    runs-on: ${{ matrix.platform == 'amd64' && 'ubuntu-26.04' || 'ubuntu-26.04-arm' }}
+    runs-on: ubuntu-26.04
+
     steps:
       - name: Free disk space
         uses: hastd/free-disk-space@68572aeaadb7f76bd408246328e95926323402b5 # v0.1.2
@@ -97,9 +88,7 @@ jobs:
       - name: Push to GHCR
         id: push
         env:
-          IMAGE_DIGEST: ${{ steps.load.outputs.digest }}
           MAX_RETRIES: 3
-          PLATFORM: ${{ matrix.platform }}
           REPOSITORY_OWNER: ${{ github.repository_owner }}
           SIGNING_SECRET: ${{ secrets.SIGNING_SECRET }}
         run: |
@@ -110,125 +99,8 @@ jobs:
           sudo mkdir -p "/etc/containers/registries.d/"
           echo -e "docker:\n  ${IMAGE_REGISTRY}:\n    use-sigstore-attachments: true" | sudo tee "/etc/containers/registries.d/${REPOSITORY_OWNER}.yaml"
 
-          DIGESTFILE="/tmp/digestfile" # This needs to be r/w, non-existent so that podman can write to it
           # HACK: push two times so layer annotations are present
           # TODO: remove me when https://github.com/containers/podman/issues/27796 fixed
           for _ in $(seq 2); do
-            podman push --retry "${MAX_RETRIES}" --compression-format=zstd --digestfile="${DIGESTFILE}" "localhost/${IMAGE_NAME}:${DEFAULT_TAG}" "${IMAGE_REGISTRY}/${IMAGE_NAME}:${DEFAULT_TAG}-${PLATFORM}" "--sign-passphrase-file=/dev/null" "--sign-by-sigstore-private-key=${PRIVATE_KEY_FILE}"
-          done
-          echo "remote_image_digest=$(< "${DIGESTFILE}")" | tee "${GITHUB_OUTPUT}"
-
-      - name: Create Job Outputs
-        env:
-          IMAGE_NAME: ${{ env.IMAGE_NAME }}
-          PLATFORM: ${{ matrix.platform }}
-          DIGEST: ${{ steps.push.outputs.remote_image_digest }}
-        run: |
-          set -x
-          mkdir -p /tmp/outputs/digests
-          echo "${DIGEST}" | tee "/tmp/outputs/digests/${IMAGE_NAME}-${PLATFORM}.txt"
-
-      - name: Upload Output Artifacts
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: ${{ env.IMAGE_NAME }}-${{ matrix.platform }}
-          retention-days: 1
-          if-no-files-found: error
-          path: |
-            /tmp/outputs/digests/*.txt
-
-  manifest:
-    name: Create Manifest
-    runs-on: ubuntu-26.04
-    if: always()
-    needs:
-      - build_push
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
-    steps:
-      - name: Exit on failure
-        shell: bash
-        env:
-          JOBS: ${{ toJson(needs) }}
-        run: |
-          for i in $(jq -r 'to_entries[] | .value.result' <<< "${JOBS}"); do
-            if [ "$i" != "success" ]; then
-              echo "Status check not okay!"
-              exit 1
-            fi
-          done
-
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-
-      - name: Image Metadata
-        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
-        id: metadata
-        with:
-          tags: |
-            type=raw,value=latest
-          labels: |
-            containers.bootc=1
-            io.artifacthub.package.deprecated=false
-            io.artifacthub.package.keywords=${{ env.IMAGE_KEYWORDS }}
-            io.artifacthub.package.license=${{ env.IMAGE_LICENSE }}
-            io.artifacthub.package.logo-url=${{ env.IMAGE_LOGO_URL }}
-            io.artifacthub.package.prerelease=false
-            io.artifacthub.package.readme-url=https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}/README.md
-            org.opencontainers.image.description=${{ env.IMAGE_DESC }}
-            org.opencontainers.image.documentation=https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}/README.md
-            org.opencontainers.image.licenses=${{ env.IMAGE_LICENSE }}
-            org.opencontainers.image.source=https://github.com/${{ github.repository }}/commit/${{ github.sha }}
-            org.opencontainers.image.title=${{ env.IMAGE_NAME }}
-            org.opencontainers.image.url=https://github.com/${{ github.repository }}/tree/${{ github.sha }}
-            org.opencontainers.image.vendor=${{ github.repository_owner }}
-            org.opencontainers.image.version=${{ env.DEFAULT_TAG }}
-
-      - name: Login to GitHub Container Registry
-        env:
-          REGISTRY: ghcr.io
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_ACTOR: ${{ github.actor }}
-        run: echo "${GITHUB_TOKEN}" | podman login -u "${GITHUB_ACTOR}" --password-stdin "${REGISTRY}"
-
-      - name: Fetch Build Outputs
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          pattern: ${{ env.IMAGE_NAME }}-*
-          merge-multiple: true
-          path: /tmp/artifacts
-
-      - name: Publish manifest with unified architecture and sign
-        shell: bash
-        env:
-          SIGNING_SECRET: ${{ secrets.SIGNING_SECRET }}
-          LABELS: ${{ steps.metadata.outputs.labels }}
-          REPOSITORY_OWNER: ${{ github.repository_owner }}
-          MAX_RETRIES: 3
-        run: |
-          set -x
-
-          PRIVATE_KEY_FILE="$(mktemp)"
-          echo "${SIGNING_SECRET}" > "${PRIVATE_KEY_FILE}"
-          trap 'rm -f $PRIVATE_KEY_FILE' EXIT
-          sudo mkdir -p "/etc/containers/registries.d/"
-          echo -e "docker:\n  ${IMAGE_REGISTRY}:\n    use-sigstore-attachments: true" | sudo tee "/etc/containers/registries.d/${REPOSITORY_OWNER}.yaml"
-
-          TARGET_MANIFEST="${IMAGE_REGISTRY}/${IMAGE_NAME}"
-
-          podman manifest create "${TARGET_MANIFEST}"
-          for PLATFORM in amd64 arm64; do
-            TARGET_DIGEST="$(< "/tmp/artifacts/${IMAGE_NAME}-${PLATFORM}.txt")"
-            podman manifest add "${TARGET_MANIFEST}" "${TARGET_MANIFEST}@${TARGET_DIGEST}" --arch "${PLATFORM}"
-          done
-
-          while IFS= read -r LABEL; do
-            podman manifest annotate --index --annotation "${LABEL}" "${TARGET_MANIFEST}"
-          done <<< "${LABELS}"
-          # HACK: push two times so layer annotations are present
-          # TODO: remove me when https://github.com/containers/podman/issues/27796 fixed
-          for _ in $(seq 2); do
-            podman manifest push --retry "${MAX_RETRIES}" --all=false --compression-format=zstd "${TARGET_MANIFEST}" "${TARGET_MANIFEST}:${DEFAULT_TAG}" "--sign-passphrase-file=/dev/null" "--sign-by-sigstore-private-key=${PRIVATE_KEY_FILE}"
+            podman push --retry "${MAX_RETRIES}" --compression-format=zstd "localhost/${IMAGE_NAME}:${DEFAULT_TAG}" "${IMAGE_REGISTRY}/${IMAGE_NAME}:${DEFAULT_TAG}" "--sign-passphrase-file=/dev/null" "--sign-by-sigstore-private-key=${PRIVATE_KEY_FILE}"
           done
