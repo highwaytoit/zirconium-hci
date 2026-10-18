@@ -18,6 +18,10 @@ sed -i 's|#LockLayering.*|LockLayering=true|' /etc/rpm-ostreed.conf
 # Necessary for general behavior expected by image-based systems
 sed -i 's|^HOME=.*|HOME=/var/home|' "/etc/default/useradd"
 
+# Preserve Pantum's runtime payload before /opt becomes /var/opt.
+mkdir -p /usr/share/factory/opt
+mv /opt/pantum /usr/share/factory/opt/pantum
+
 rm -rf /home /root /usr/local /srv /opt /mnt /usr/local /boot /media
 mkdir -p /boot /var /sysroot/ostree
 ln -s sysroot/ostree /ostree
