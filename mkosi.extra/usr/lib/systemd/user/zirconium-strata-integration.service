@@ -1,0 +1,16 @@
+[Unit]
+Description=Provision initial Zirconium Strata desktop integration
+After=graphical-session.target systemd-tmpfiles-setup.service
+ConditionEnvironment=XDG_CURRENT_DESKTOP=niri
+ConditionPathExists=!%h/.local/state/zirconium/strata-integration-v1
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/mkdir -p %h/.local/share/dbus-1/services
+ExecStart=/usr/bin/cp --update=none /usr/share/zirconium/strata/io.github.lgse.Strata.FileManager1.service %h/.local/share/dbus-1/services/io.github.lgse.Strata.FileManager1.service
+ExecStart=/usr/bin/strata --install-portal
+ExecStart=/usr/bin/mkdir -p %h/.local/state/zirconium
+ExecStart=/usr/bin/touch %h/.local/state/zirconium/strata-integration-v1
+
+[Install]
+WantedBy=xdg-desktop-autostart.target
