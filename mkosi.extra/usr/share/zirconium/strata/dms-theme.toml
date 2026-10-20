@@ -1,4 +1,4 @@
-name = "DMS"
+name = "DMS Auto"
 
 background = "{{colors.background.default.hex}}"
 surface = "{{colors.surface_container.default.hex}}"
