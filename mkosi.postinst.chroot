@@ -46,6 +46,15 @@ ln -s "/usr/share/fonts/google-noto-sans-cjk-fonts" "/usr/share/fonts/noto-cjk"
 
 fc-cache --force --really-force --system-only --verbose # recreate font-cache to pick up the added fonts
 
+# Set the image-managed default; fail if the pinned zdots binding changes.
+binds=/usr/share/zirconium/zdots/system/niri/includes/binds.kdl
+nautilus_bind='Mod+E hotkey-overlay-title="Open File Manager" { spawn "nautilus"; }'
+strata_bind='Mod+E hotkey-overlay-title="Open File Manager" { spawn "strata"; }'
+test "$(grep -Fxc "$nautilus_bind" "$binds")" -eq 1
+sed --sandbox -i 's/^Mod+E hotkey-overlay-title="Open File Manager" { spawn "nautilus"; }$/Mod+E hotkey-overlay-title="Open File Manager" { spawn "strata"; }/' "$binds"
+grep -Fx "$strata_bind" "$binds"
+test "$(grep -Fxc "$nautilus_bind" "$binds")" -eq 0
+
 # These files NEED to be on the image.
 test -x /usr/bin/strata
 test -f /usr/share/applications/io.github.lgse.Strata.desktop

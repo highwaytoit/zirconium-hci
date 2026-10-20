@@ -11,4 +11,3 @@ enable gnome-keyring-daemon.service
 enable gnome-keyring-daemon.socket
 enable iio-niri.service
 enable udiskie.service
-enable zirconium-strata-keybind.service
