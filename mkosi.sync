@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Always discover the current stable release, independently of cached downloads.
+(
+    strata_cache="${SRCDIR}/cache/strata/${ARCHITECTURE}"
+    mkdir -p "$strata_cache"
+    rm -f "$strata_cache/release"
+
+    strata_url=$(curl --retry 3 --retry-delay 2 --retry-max-time 60 -fsSL \
+        -o /dev/null -w '%{url_effective}' https://github.com/lgse/strata/releases/latest)
+    strata_tag=${strata_url##*/}
+    if [[ ! $strata_tag =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+        echo "Unexpected Strata stable release tag: $strata_tag" >&2
+        exit 1
+    fi
+
+    case "$ARCHITECTURE" in
+        x86-64) strata_target=x86_64-unknown-linux-gnu ;;
+        arm64) strata_target=aarch64-unknown-linux-gnu ;;
+        *) echo "Unsupported Strata architecture: $ARCHITECTURE" >&2; exit 1 ;;
+    esac
+    strata_archive="strata-${strata_tag#v}-${strata_target}.tar.gz"
+    strata_release_url="https://github.com/lgse/strata/releases/download/${strata_tag}"
+    strata_download=$(mktemp -d "$strata_cache/.download.XXXXXX")
+    trap 'rm -rf "$strata_download"' EXIT
+
+    curl --retry 3 --retry-delay 2 --retry-max-time 60 -fsSLo \
+        "$strata_download/$strata_archive" "$strata_release_url/$strata_archive"
+    curl --retry 3 --retry-delay 2 --retry-max-time 60 -fsSLo \
+        "$strata_download/$strata_archive.sha256" "$strata_release_url/$strata_archive.sha256"
+    (cd "$strata_download" && sha256sum --check --strict "$strata_archive.sha256")
+
+    mv "$strata_download/$strata_archive" "$strata_download/$strata_archive.sha256" "$strata_cache/"
+    printf '%s\n' "$strata_archive" > "$strata_cache/release"
+)

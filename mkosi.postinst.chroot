@@ -3,6 +3,34 @@ set -xeuo pipefail
 
 install -Dpm0644 -t /usr/share/flatpak/remotes.d/ "$SRCDIR/cache/flathub.flatpakrepo"
 
+(
+    strata_cache="$SRCDIR/cache/strata/$ARCHITECTURE"
+    strata_archive=$(cat "$strata_cache/release")
+    case "$ARCHITECTURE" in
+        x86-64) strata_target=x86_64-unknown-linux-gnu ;;
+        arm64) strata_target=aarch64-unknown-linux-gnu ;;
+        *) echo "Unsupported Strata architecture: $ARCHITECTURE" >&2; exit 1 ;;
+    esac
+    if [[ ! $strata_archive =~ ^strata-(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-${strata_target}\.tar\.gz$ ]]; then
+        echo "Unexpected cached Strata archive name: $strata_archive" >&2
+        exit 1
+    fi
+    (cd "$strata_cache" && sha256sum --check --strict "$strata_archive.sha256")
+
+    strata_tmp=$(mktemp -d)
+    trap 'rm -rf "$strata_tmp"' EXIT
+    tar --extract --gzip --file="$strata_cache/$strata_archive" --directory="$strata_tmp" \
+        --no-same-owner --no-same-permissions
+    strata_extracted="$strata_tmp/${strata_archive%.tar.gz}"
+    test -x "$strata_extracted/strata"
+    test -f "$strata_extracted/io.github.lgse.Strata.desktop"
+    test -f "$strata_extracted/io.github.lgse.Strata.svg"
+
+    install -Dm0755 "$strata_extracted/strata" /usr/bin/strata
+    install -Dm0644 "$strata_extracted/io.github.lgse.Strata.desktop" /usr/share/applications/io.github.lgse.Strata.desktop
+    install -Dm0644 "$strata_extracted/io.github.lgse.Strata.svg" /usr/share/icons/hicolor/scalable/apps/io.github.lgse.Strata.svg
+)
+
 niri --version | grep -i -E "niri [[:digit:]]*\.[[:digit:]]*"
 
 install -d /usr/share/zirconium/
@@ -17,6 +45,9 @@ ln -s "/usr/share/fonts/google-noto-sans-cjk-fonts" "/usr/share/fonts/noto-cjk"
 fc-cache --force --really-force --system-only --verbose # recreate font-cache to pick up the added fonts
 
 # These files NEED to be on the image.
+test -x /usr/bin/strata
+test -f /usr/share/applications/io.github.lgse.Strata.desktop
+test -f /usr/share/icons/hicolor/scalable/apps/io.github.lgse.Strata.svg
 grep -F -e "Comment=Central repository of Flatpak applications" /usr/share/flatpak/remotes.d/flathub.flatpakrepo
 stat /usr/share/flatpak/remotes.d/flathub.flatpakrepo
 stat /usr/bin/luks*tpm*
