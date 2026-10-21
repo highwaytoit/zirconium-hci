@@ -1,3 +1,3 @@
 [templates.zirconium-strata]
 input_path = '/usr/share/zirconium/strata/dms-theme.toml'
-output_path = 'CONFIG_DIR/strata/themes/dms-auto.toml'
+output_path = '~/.config/strata/themes/dms-auto.toml'
