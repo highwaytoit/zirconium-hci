@@ -37,6 +37,45 @@ install -Dpm0644 -t /usr/share/flatpak/remotes.d/ "$SRCDIR/cache/flathub.flatpak
     gtk-update-icon-cache -qtf /usr/share/icons/hicolor
 )
 
+(
+    dfiles_cache="$SRCDIR/cache/dfiles/$ARCHITECTURE"
+    dfiles_tag=$(cat "$dfiles_cache/release")
+    if [[ ! $dfiles_tag =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+        echo "Unexpected cached Dux Files release tag: $dfiles_tag" >&2
+        exit 1
+    fi
+    case "$ARCHITECTURE" in
+        x86-64) dfiles_target=amd64 ;;
+        arm64) dfiles_target=arm64 ;;
+        *) echo "Unsupported Dux Files architecture: $ARCHITECTURE" >&2; exit 1 ;;
+    esac
+    dfiles_archive="dfiles-linux-${dfiles_target}.tar.gz"
+    dfiles_source="dfiles-${dfiles_tag#v}.tar.gz"
+    (cd "$dfiles_cache" && sha256sum --check --strict "$dfiles_archive.sha256")
+
+    dfiles_tmp=$(mktemp -d)
+    trap 'rm -rf "$dfiles_tmp"' EXIT
+    tar --extract --gzip --file="$dfiles_cache/$dfiles_archive" --directory="$dfiles_tmp" \
+        --no-same-owner --no-same-permissions
+    tar --extract --gzip --file="$dfiles_cache/$dfiles_source" --directory="$dfiles_tmp" \
+        --no-same-owner --no-same-permissions
+    dfiles_assets="$dfiles_tmp/${dfiles_source%.tar.gz}/assets"
+    test -x "$dfiles_tmp/dfiles-linux-$dfiles_target"
+    test -f "$dfiles_assets/dev.duxlabs.files.desktop"
+    test -f "$dfiles_assets/dev.duxlabs.files.svg"
+    test -f "$dfiles_assets/dev.duxlabs.files.metainfo.xml"
+    test -f "$dfiles_assets/dev.duxlabs.files.policy"
+
+    # Install application assets only; leave FileManager1 and portals to Strata.
+    install -Dm0755 "$dfiles_tmp/dfiles-linux-$dfiles_target" /usr/bin/dfiles
+    install -Dm0644 "$dfiles_assets/dev.duxlabs.files.desktop" /usr/share/applications/dev.duxlabs.files.desktop
+    install -Dm0644 "$dfiles_assets/dev.duxlabs.files.svg" /usr/share/icons/hicolor/scalable/apps/dev.duxlabs.files.svg
+    install -Dm0644 "$dfiles_assets/dev.duxlabs.files.metainfo.xml" /usr/share/metainfo/dev.duxlabs.files.metainfo.xml
+    install -Dm0644 "$dfiles_assets/dev.duxlabs.files.policy" /usr/share/polkit-1/actions/dev.duxlabs.files.policy
+    update-desktop-database /usr/share/applications
+    gtk-update-icon-cache -qtf /usr/share/icons/hicolor
+)
+
 niri --version | grep -i -E "niri [[:digit:]]*\.[[:digit:]]*"
 
 install -d /usr/share/zirconium/

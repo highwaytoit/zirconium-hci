@@ -34,3 +34,56 @@ set -euo pipefail
     mv "$strata_download/$strata_archive" "$strata_download/$strata_archive.sha256" "$strata_cache/"
     printf '%s\n' "$strata_archive" > "$strata_cache/release"
 )
+
+# Dux Files is an additional trial application, independent of Strata.
+(
+    dfiles_cache="${SRCDIR}/cache/dfiles/${ARCHITECTURE}"
+    mkdir -p "$dfiles_cache"
+    rm -f "$dfiles_cache/release"
+
+    dfiles_url=$(curl --retry 3 --retry-delay 2 --retry-max-time 60 -fsSL \
+        -o /dev/null -w '%{url_effective}' https://github.com/duxlabs-dev/dux-files/releases/latest)
+    dfiles_tag=${dfiles_url##*/}
+    if [[ ! $dfiles_tag =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+        echo "Unexpected Dux Files stable release tag: $dfiles_tag" >&2
+        exit 1
+    fi
+
+    case "$ARCHITECTURE" in
+        x86-64) dfiles_target=amd64 ;;
+        arm64) dfiles_target=arm64 ;;
+        *) echo "Unsupported Dux Files architecture: $ARCHITECTURE" >&2; exit 1 ;;
+    esac
+    dfiles_archive="dfiles-linux-${dfiles_target}.tar.gz"
+    dfiles_source="dfiles-${dfiles_tag#v}.tar.gz"
+    dfiles_release_url="https://github.com/duxlabs-dev/dux-files/releases/download/${dfiles_tag}"
+    dfiles_download=$(mktemp -d "$dfiles_cache/.download.XXXXXX")
+    trap 'rm -rf "$dfiles_download"' EXIT
+
+    dfiles_source_digest=$("${SRCDIR}/ghcurl" \
+        "https://api.github.com/repos/duxlabs-dev/dux-files/releases/tags/${dfiles_tag}" -f \
+        | jq -r --arg name "$dfiles_source" '
+            [.assets[] | select(.name == $name)]
+            | if length == 0 then error("Dux Files release asset absent: " + $name)
+              elif length != 1 then error("Dux Files release asset duplicated: " + $name)
+              else .[0].digest // ""
+              end')
+    if [[ ! $dfiles_source_digest =~ ^sha256:[0-9a-fA-F]{64}$ ]]; then
+        echo "Dux Files release asset has no usable SHA-256 digest: $dfiles_source" >&2
+        exit 1
+    fi
+
+    curl --retry 3 --retry-delay 2 --retry-max-time 60 -fsSLo \
+        "$dfiles_download/$dfiles_archive" "$dfiles_release_url/$dfiles_archive"
+    curl --retry 3 --retry-delay 2 --retry-max-time 60 -fsSLo \
+        "$dfiles_download/$dfiles_archive.sha256" "$dfiles_release_url/$dfiles_archive.sha256"
+    (cd "$dfiles_download" && sha256sum --check --strict "$dfiles_archive.sha256")
+    curl --retry 3 --retry-delay 2 --retry-max-time 60 -fsSLo \
+        "$dfiles_download/$dfiles_source" "$dfiles_release_url/$dfiles_source"
+    (cd "$dfiles_download" && printf '%s  %s\n' "${dfiles_source_digest#sha256:}" "$dfiles_source" \
+        | sha256sum --check --strict)
+
+    mv "$dfiles_download/$dfiles_archive" "$dfiles_download/$dfiles_archive.sha256" \
+        "$dfiles_download/$dfiles_source" "$dfiles_cache/"
+    printf '%s\n' "$dfiles_tag" > "$dfiles_cache/release"
+)
