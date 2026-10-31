@@ -1,0 +1,185 @@
+name: Sync Zirconium Upstream
+
+on:
+  schedule:
+    - cron: "0 */4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: upstream-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: highwaytoit/zirconium-hci
+          ref: main
+          fetch-depth: 0
+
+      - name: Sync upstream and HCI dependencies in one pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: highwaytoit/zirconium-hci
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git remote add upstream https://github.com/zirconium-dev/zirconium.git
+          git fetch origin +refs/heads/main:refs/remotes/origin/main
+          git fetch upstream +refs/heads/main:refs/remotes/upstream/main
+          upstream_sha=$(git rev-parse upstream/main)
+
+          last_synced=""
+          if marker=$(git show origin/main:.github/upstream-sync.sha 2>/dev/null); then
+            if [[ "$marker" =~ ^[0-9a-fA-F]{40}$ ]] &&
+               git cat-file -e "${marker}^{commit}" 2>/dev/null &&
+               git merge-base --is-ancestor "$marker" "$upstream_sha"; then
+              last_synced=$(git rev-parse "${marker}^{commit}")
+            else
+              echo "Upstream SHA marker is invalid or no longer an upstream ancestor; using merge-base."
+            fi
+          fi
+          if [ -z "$last_synced" ]; then
+            last_synced=$(git merge-base origin/main upstream/main)
+          fi
+
+          # Record the exact remote state; refuse to overwrite a concurrent change.
+          previous_branch_sha=$(git ls-remote --heads origin refs/heads/upstream-sync | cut -f1)
+          git switch --force-create upstream-sync origin/main
+
+          if [ "$last_synced" != "$upstream_sha" ]; then
+            # Disable rename detection so excluded paths cannot enter a rename patch.
+            patch_file=$(mktemp "$RUNNER_TEMP/upstream-sync-patch.XXXXXX")
+            git diff --binary --full-index --no-renames "$last_synced" "$upstream_sha" -- . \
+              ':(top,glob,exclude).github/workflows/**' \
+              ':(top,exclude).github/renovate.json5' \
+              ':(top,exclude).github/upstream-sync.sha' > "$patch_file"
+            if [ -s "$patch_file" ]; then
+              if ! git apply --3way --index "$patch_file"; then
+                echo "::error::Upstream delta conflicts with local HCI changes or could not be applied. Manual review is required; no branch was pushed and main was not modified."
+                exit 1
+              fi
+            fi
+
+            mkdir -p .github
+            printf '%s\n' "$upstream_sha" > .github/upstream-sync.sha
+            git add -- .github/upstream-sync.sha
+          fi
+
+          # Resolve every managed action before editing; API errors abort before any push.
+          managed_actions=(hastd/free-disk-space actions/checkout systemd/mkosi extractions/setup-just)
+          declare -A action_shas action_versions action_counts
+          for action in "${managed_actions[@]}"; do
+            if [ "$action" = systemd/mkosi ]; then
+              version=main
+            else
+              version=$(gh api "repos/$action/releases/latest" --jq '.tag_name')
+            fi
+            if [ -z "$version" ] || [ "$version" = null ] || [[ "$version" =~ [[:space:]] ]]; then
+              echo "::error::Invalid release tag for $action."
+              exit 1
+            fi
+            # The commits endpoint peels release tags (including annotated tags) to commits.
+            sha=$(gh api --method GET "repos/$action/commits" \
+              -f sha="$version" -f per_page=1 --jq '.[0].sha')
+            if [[ ! "$sha" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "::error::Could not resolve $action at $version to a commit."
+              exit 1
+            fi
+            action_shas[$action]=$sha
+            action_versions[$action]=$version
+            action_counts[$action]=0
+          done
+
+          # Preserve all other workflow lines, including their whitespace.
+          build_workflow=.github/workflows/build-nvidia-bootc.yaml
+          updated_workflow=""
+          uses_pattern='^([[:space:]]*uses:[[:space:]]*)([^@[:space:]]+)@[0-9a-fA-F]{40}([[:space:]]*(#.*)?)$'
+          while IFS= read -r line || [ -n "$line" ]; do
+            if [[ "$line" =~ $uses_pattern ]]; then
+              prefix=${BASH_REMATCH[1]}
+              action=${BASH_REMATCH[2]}
+              if [[ -v "action_shas[$action]" ]]; then
+                line="${prefix}${action}@${action_shas[$action]} # ${action_versions[$action]}"
+                action_counts[$action]=$(( ${action_counts[$action]} + 1 ))
+              fi
+            fi
+            updated_workflow+="$line"$'\n'
+          done < "$build_workflow"
+          for action in "${managed_actions[@]}"; do
+            if [ "${action_counts[$action]}" -ne 1 ]; then
+              echo "::error::Expected exactly one pinned use of $action in $build_workflow."
+              exit 1
+            fi
+          done
+          printf '%s' "$updated_workflow" > "$build_workflow"
+          git add -- "$build_workflow"
+
+          # Use each configured branch, or the repository default branch when unset.
+          for path in assets mkosi.extra/usr/share/zirconium/zdots; do
+            url=$(git config -f .gitmodules --get "submodule.$path.url")
+            branch=$(git config -f .gitmodules --get "submodule.$path.branch" || :)
+            ref=HEAD
+            if [ -n "$branch" ]; then
+              ref="refs/heads/$branch"
+            fi
+            remote_ref=$(git ls-remote --exit-code "$url" "$ref")
+            read -r sha resolved_ref <<< "$remote_ref"
+            if [[ ! "$sha" =~ ^[0-9a-f]{40}$ ]] || [ "$resolved_ref" != "$ref" ]; then
+              echo "::error::Could not resolve submodule $path at $ref."
+              exit 1
+            fi
+            entry=$(git ls-files --stage -- "$path")
+            read -r mode old_sha stage entry_path <<< "$entry"
+            if [ "$mode" != 160000 ] || [ "$stage" != 0 ]; then
+              echo "::error::Expected an existing, unconflicted gitlink at $path."
+              exit 1
+            fi
+            if [ "$old_sha" != "$sha" ]; then
+              git update-index --cacheinfo 160000 "$sha" "$path"
+            fi
+          done
+
+          git diff --cached --stat
+          if git diff --cached --quiet; then
+            echo "Zirconium upstream and managed HCI dependencies are current; no push or PR needed."
+            exit 0
+          fi
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m "chore: sync Zirconium upstream and HCI dependencies"
+          git push --force-with-lease="refs/heads/upstream-sync:$previous_branch_sha" \
+            origin refs/heads/upstream-sync:refs/heads/upstream-sync
+
+          body_file=$(mktemp "$RUNNER_TEMP/upstream-sync-body.XXXXXX")
+          cat > "$body_file" <<EOF
+          Source: zirconium-dev/zirconium:main
+          Previous accepted upstream SHA: $last_synced
+          Proposed upstream SHA: $upstream_sha
+
+          Upstream GitHub workflows are intentionally excluded because this fork owns its workflow configuration.
+          Renovate configuration is intentionally excluded. The upstream sync marker is also excluded from the source delta.
+
+          This same PR may contain HCI GitHub Action pin updates and assets/zdots submodule updates.
+
+          This PR is NOT auto-merged. Local HCI changes and conflicts require manual review.
+          Merging into main triggers the existing HCI image build.
+          EOF
+
+          existing_pr=$(gh pr list --state open --base main --head upstream-sync \
+            --json number --jq '.[0].number // empty')
+          if [ -n "$existing_pr" ]; then
+            gh pr edit "$existing_pr" --body-file "$body_file"
+          else
+            gh pr create --base main --head upstream-sync \
+              --title "chore: sync Zirconium upstream" --body-file "$body_file"
+          fi
