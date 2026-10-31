@@ -1,9 +1,11 @@
 #!/bin/bash
 set -euo pipefail
 
-if ! nordvpn_group=$(getent group nordvpn); then
-    exit 0
+if ! getent group nordvpn >/dev/null; then
+    groupadd --system nordvpn
 fi
+
+nordvpn_group=$(getent group nordvpn)
 IFS=: read -r _ _ nordvpn_gid _ <<< "$nordvpn_group"
 
 # Fedora's normal login UID range, used when login.defs omits a limit.
