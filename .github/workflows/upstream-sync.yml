@@ -59,7 +59,9 @@ jobs:
             # Disable rename detection so excluded paths cannot enter a rename patch.
             patch_file=$(mktemp "$RUNNER_TEMP/upstream-sync-patch.XXXXXX")
             git diff --binary --full-index --no-renames "$last_synced" "$upstream_sha" -- . \
+              ':(top,exclude)README.md' \
               ':(top,glob,exclude).github/workflows/**' \
+              ':(top,exclude)renovate.json' \
               ':(top,exclude).github/renovate.json5' \
               ':(top,exclude).github/upstream-sync.sha' > "$patch_file"
             if [ -s "$patch_file" ]; then
@@ -166,7 +168,8 @@ jobs:
           Previous accepted upstream SHA: $last_synced
           Proposed upstream SHA: $upstream_sha
 
-          Upstream GitHub workflows are intentionally excluded because this fork owns its workflow configuration.
+          README.md is fork-owned and intentionally excluded because it documents this HCI fork.
+          GitHub workflows are fork-owned and intentionally excluded because this fork owns its workflow configuration.
           Renovate configuration is intentionally excluded. The upstream sync marker is also excluded from the source delta.
 
           This same PR may contain HCI GitHub Action pin updates and assets/zdots submodule updates.
