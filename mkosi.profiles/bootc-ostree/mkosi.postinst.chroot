@@ -22,6 +22,13 @@ sed -i 's|^HOME=.*|HOME=/var/home|' "/etc/default/useradd"
 mkdir -p /usr/share/factory/opt
 mv /opt/pantum /usr/share/factory/opt/pantum
 
+# Preserve NordVPN GUI's complete runtime bundle before /opt becomes /var/opt.
+test -x /opt/nordvpn-gui/nordvpn-gui
+mv /opt/nordvpn-gui /usr/share/factory/opt/nordvpn-gui
+ln -sfn /opt/nordvpn-gui/nordvpn-gui /usr/bin/nordvpn-gui
+test -x /usr/share/factory/opt/nordvpn-gui/nordvpn-gui
+test -L /usr/bin/nordvpn-gui
+
 rm -rf /home /root /usr/local /srv /opt /mnt /usr/local /boot /media
 mkdir -p /boot /var /sysroot/ostree
 ln -s sysroot/ostree /ostree
