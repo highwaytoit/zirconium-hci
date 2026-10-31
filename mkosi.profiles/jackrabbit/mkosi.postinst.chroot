@@ -9,7 +9,7 @@ done
 
 rm -rfv /usr/lib/modules/*
 
-rpm -ivh --force "${SRCDIR}/cache/linux-ogc/kernel-{[0-9],core,modules,devel}*.rpm" --nodeps --noscripts
+rpm -ivh --force "${SRCDIR}/cache/linux-ogc/kernel-{[0-9],core,modules,devel}*.rpm" --nodeps --noscripts --noverify
 
 rpm -qi mesa-filesystem | grep -F -e "Terra"
 rpm -qi kernel | grep -F -e "ogc"
