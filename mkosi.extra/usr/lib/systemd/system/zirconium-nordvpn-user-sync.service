@@ -1,0 +1,11 @@
+[Unit]
+Description=Grant normal local users access to NordVPN
+Before=systemd-user-sessions.service
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/usr/libexec/zirconium-nordvpn-user-sync
+
+[Install]
+WantedBy=multi-user.target

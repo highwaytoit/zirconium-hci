@@ -11,3 +11,7 @@ enable systemd-resolved.service
 enable cardwired.service
 enable gazed.service
 enable cups.service
+enable nordvpnd.socket
+enable nordvpnd.service
+enable zirconium-nordvpn-user-sync.service
+enable zirconium-nordvpn-user-sync.path

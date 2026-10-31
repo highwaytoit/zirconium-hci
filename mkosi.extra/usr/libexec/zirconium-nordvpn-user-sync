@@ -1,0 +1,31 @@
+#!/bin/bash
+set -euo pipefail
+
+if ! nordvpn_group=$(getent group nordvpn); then
+    exit 0
+fi
+IFS=: read -r _ _ nordvpn_gid _ <<< "$nordvpn_group"
+
+# Fedora's normal login UID range, used when login.defs omits a limit.
+uid_min=1000
+uid_max=60000
+if [[ -r /etc/login.defs ]]; then
+    while read -r key value _; do
+        [[ $value =~ ^[0-9]+$ ]] || continue
+        case "$key" in
+            UID_MIN) uid_min=$((10#$value)) ;;
+            UID_MAX) uid_max=$((10#$value)) ;;
+        esac
+    done < /etc/login.defs
+fi
+
+while IFS=: read -r username _ uid _; do
+    [[ $uid =~ ^[0-9]+$ ]] || continue
+    uid=$((10#$uid))
+    (( uid != 0 && uid >= uid_min && uid <= uid_max )) || continue
+
+    # Include primary and supplementary groups, and avoid redundant writes.
+    if [[ " $(id -G -- "$username") " != *" $nordvpn_gid "* ]]; then
+        usermod -aG nordvpn -- "$username"
+    fi
+done < /etc/passwd
