@@ -4,16 +4,15 @@
     "config:best-practices",
   ],
 
+  "automerge": false,
+  "dependencyDashboard": true,
+  "dependencyDashboardApproval": true,
   "rebaseWhen": "never",
 
   "git-submodules": {
     "enabled": true
   },
   "packageRules": [
-    {
-      "automerge": true,
-      "matchUpdateTypes": ["pin", "pinDigest"]
-    },
     {
       "enabled": false,
       "matchUpdateTypes": ["digest", "pinDigest", "pin"],
