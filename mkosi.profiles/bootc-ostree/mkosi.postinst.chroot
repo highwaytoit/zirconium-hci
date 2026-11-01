@@ -29,6 +29,22 @@ ln -sfn /opt/nordvpn-gui/nordvpn-gui /usr/bin/nordvpn-gui
 test -x /usr/share/factory/opt/nordvpn-gui/nordvpn-gui
 test -L /usr/bin/nordvpn-gui
 
+# Preserve NordVPN's required seed data before build-time /var is discarded.
+mkdir -p /usr/share/factory/var/lib/nordvpn/data
+
+for seed in \
+    countries.dat \
+    cybersec.dat \
+    insights.dat \
+    ovpn_template.xslt \
+    servers.dat
+do
+    test -s "/var/lib/nordvpn/data/$seed"
+    install -m 0600 \
+        "/var/lib/nordvpn/data/$seed" \
+        "/usr/share/factory/var/lib/nordvpn/data/$seed"
+done
+
 rm -rf /home /root /usr/local /srv /opt /mnt /usr/local /boot /media
 mkdir -p /boot /var /sysroot/ostree
 ln -s sysroot/ostree /ostree
