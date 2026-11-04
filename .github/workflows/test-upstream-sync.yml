@@ -1,0 +1,51 @@
+name: Test HCI Upstream Sync (no publish)
+
+on:
+  push:
+    branches:
+      - test/upstream-sync-hardening
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-hci-sync-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dry-run:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout testing branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+
+      - name: Unit tests for safe merge and refusal cases
+        run: python3 -m unittest discover -s tests -p 'test_hci_merge_packages.py' -v
+
+      - name: Dry-run sync against actual Zirconium upstream
+        env:
+          SYNC_BASE_BRANCH: ${{ github.ref_name }}
+          SYNC_DRY_RUN: '1'
+        run: bash build-scripts/hci-sync-upstream.sh
+
+      - name: Verify HCI preservation and upstream updates
+        shell: bash
+        run: |
+          set -euo pipefail
+          HCI_PKG=mkosi.profiles/base-desktop/mkosi.conf.d/fedora/mkosi.conf.d/99-hci-desktop.conf
+          BASE_PKG=mkosi.profiles/base-desktop/mkosi.conf.d/fedora/mkosi.conf.d/base-desktop.conf
+          grep -qx '    gvfs-afc' "$HCI_PKG"
+          grep -qx '    gutenprint-cups' "$BASE_PKG"
+          grep -qx '    virt-manager' mkosi.conf.d/fedora/mkosi.conf.d/zirconium.conf
+          ! grep -qx '    nautilus' mkosi.conf.d/fedora/mkosi.conf.d/zirconium.conf
+          cmp cosign.pub <(git show "origin/${GITHUB_REF_NAME}:cosign.pub")
+          if git diff --cached --name-only | grep -Eq '^(.github/workflows/|cosign.pub$|README.md$|.*99-hci.*\.conf$)'; then
+            echo '::error::HCI-owned files were staged by upstream sync.' >&2
+            exit 1
+          fi
+          test -z "$(git ls-files -u)"
+          git -c core.whitespace=-blank-at-eol diff --cached --check
+          echo 'PASS: custom packages, Nautilus exclusion, signing key and workflow ownership preserved.'
