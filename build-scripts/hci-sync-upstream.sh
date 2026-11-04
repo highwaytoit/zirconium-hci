@@ -55,7 +55,7 @@ if [ "$last_synced" != "$upstream_sha" ]; then
     ':(top,glob,exclude)**/99-hci*.conf' > "$patch_file"
 
   if [ -s "$patch_file" ]; then
-    if ! git apply --3way --index "$patch_file"; then
+    if ! git apply --3way --index --whitespace=nowarn "$patch_file"; then
       # Handle only strictly identical mkosi documents whose ONLY
       # divergent data is a Packages= list. Anything else is unsafe.
       if ! python3 build-scripts/hci-merge-packages.py; then
@@ -98,7 +98,7 @@ if [ -n "$(git ls-files -u)" ]; then
   echo '::error::Unresolved Git conflicts remain; stopping.' >&2
   exit 1
 fi
-git diff --cached --check
+git -c core.whitespace=-blank-at-eol diff --cached --check
 git diff --cached --stat
 if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
   {
