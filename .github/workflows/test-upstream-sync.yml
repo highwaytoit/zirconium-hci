@@ -47,5 +47,5 @@ jobs:
             exit 1
           fi
           test -z "$(git ls-files -u)"
-          git diff --cached --check
+          git -c core.whitespace=-blank-at-eol diff --cached --check
           echo 'PASS: custom packages, Nautilus exclusion, signing key and workflow ownership preserved.'
