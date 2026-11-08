@@ -60,7 +60,7 @@ set -euo pipefail
     dfiles_download=$(mktemp -d "$dfiles_cache/.download.XXXXXX")
     trap 'rm -rf "$dfiles_download"' EXIT
 
-    dfiles_source_digest=$("${SRCDIR}/ghcurl" \
+    dfiles_source_digest=$("${SRCDIR}/build-scripts/ghcurl" \
         "https://api.github.com/repos/duxlabs-dev/dux-files/releases/tags/${dfiles_tag}" -f \
         | jq -r --arg name "$dfiles_source" '
             [.assets[] | select(.name == $name)]
