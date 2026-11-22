@@ -29,6 +29,13 @@ fi
 
 # Do not read or touch the shared production sync branch during dry runs.
 previous_branch_sha=''
+patch_file=''
+body_file=''
+cleanup() {
+  [ -z "$patch_file" ] || rm -f "$patch_file"
+  [ -z "$body_file" ] || rm -f "$body_file"
+}
+trap cleanup EXIT
 if [ "$SYNC_DRY_RUN" != 1 ]; then
   if [ "$SYNC_BASE_BRANCH" != main ]; then
     echo '::error::Publishing upstream sync is allowed only from main.' >&2
@@ -41,7 +48,6 @@ git switch --force-create upstream-sync "$base_ref"
 
 if [ "$last_synced" != "$upstream_sha" ]; then
   patch_file=$(mktemp "${RUNNER_TEMP:-/tmp}/hci-upstream-patch.XXXXXX")
-  trap 'rm -f "$patch_file"' EXIT
 
   # HCI owns CI, signing identity and custom configurations; upstream owns
   # other source files. Never copy upstream signing keys or CI automation.
@@ -52,7 +58,8 @@ if [ "$last_synced" != "$upstream_sha" ]; then
     ':(top,exclude)cosign.pub' \
     ':(top,glob,exclude)build-scripts/hci-*' \
     ':(top,glob,exclude)**/hci-*.conf' \
-    ':(top,glob,exclude)**/99-hci*.conf' > "$patch_file"
+    ':(top,glob,exclude)**/99-hci*.conf' \
+    ':(top,exclude)mkosi.extra/usr/lib/systemd/system-preset/00-hci.preset' > "$patch_file"
 
   if [ -s "$patch_file" ]; then
     if ! git apply --3way --index --whitespace=nowarn "$patch_file"; then
@@ -130,15 +137,15 @@ git push --force-with-lease="refs/heads/upstream-sync:$previous_branch_sha" \
   origin refs/heads/upstream-sync:refs/heads/upstream-sync
 
 body_file=$(mktemp "${RUNNER_TEMP:-/tmp}/hci-upstream-body.XXXXXX")
-trap 'rm -f "$patch_file" "$body_file"' EXIT
 cat > "$body_file" <<EOF
 Source: zirconium-dev/zirconium:main
 Previous accepted upstream SHA: $last_synced
 Proposed upstream SHA: $upstream_sha
 
 HCI-owned and excluded: .github/, README.md, renovate.json,
-cosign.pub (fork signing identity), build-scripts/hci-*, and hci-*/99-hci*
-mkosi configuration snippets. See docs/HCI-UPSTREAM-SYNC.md.
+cosign.pub (fork signing identity), build-scripts/hci-*, local mkosi
+configuration snippets, and 00-hci.preset (HCI service enablement).
+See docs/HCI-UPSTREAM-SYNC.md.
 
 Package-only text conflicts may be combined automatically with local additions
 and removals preserved. All non-package conflicts stop for manual review.

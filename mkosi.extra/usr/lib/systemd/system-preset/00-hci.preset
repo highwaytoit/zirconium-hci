@@ -1,0 +1,8 @@
+# HCI-owned services: keep these out of upstream's 01-zirconium.preset.
+# Earlier filename wins if upstream adds matching presets.
+enable gazed.service
+enable cups.service
+enable nordvpnd.socket
+enable nordvpnd.service
+enable zirconium-nordvpn-user-sync.service
+enable zirconium-nordvpn-user-sync.path
