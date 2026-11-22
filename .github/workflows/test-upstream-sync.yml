@@ -3,7 +3,7 @@ name: Test HCI Upstream Sync (no publish)
 on:
   push:
     branches:
-      - test/upstream-sync-hardening
+      - upstream-sync
   workflow_dispatch:
 
 permissions:
@@ -17,7 +17,7 @@ jobs:
   dry-run:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout testing branch
+      - name: Checkout upstream-sync branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
@@ -37,15 +37,24 @@ jobs:
           set -euo pipefail
           HCI_PKG=mkosi.profiles/base-desktop/mkosi.conf.d/fedora/mkosi.conf.d/99-hci-desktop.conf
           BASE_PKG=mkosi.profiles/base-desktop/mkosi.conf.d/fedora/mkosi.conf.d/base-desktop.conf
+          HCI_PRESET=mkosi.extra/usr/lib/systemd/system-preset/00-hci.preset
+          UPSTREAM_PRESET=mkosi.extra/usr/lib/systemd/system-preset/01-zirconium.preset
           grep -qx '    gvfs-afc' "$HCI_PKG"
           grep -qx '    gutenprint-cups' "$BASE_PKG"
           grep -qx '    virt-manager' mkosi.conf.d/fedora/mkosi.conf.d/zirconium.conf
           ! grep -qx '    nautilus' mkosi.conf.d/fedora/mkosi.conf.d/zirconium.conf
+          for unit in gazed.service cups.service nordvpnd.socket nordvpnd.service zirconium-nordvpn-user-sync.service zirconium-nordvpn-user-sync.path; do
+            grep -qx "enable $unit" "$HCI_PRESET"
+            ! grep -qx "enable $unit" "$UPSTREAM_PRESET"
+          done
+          grep -qx 'enable input-remapper.service' "$UPSTREAM_PRESET"
+          grep -qx 'enable cardwired.service' "$UPSTREAM_PRESET"
+          test -f mkosi.extra/usr/lib/tmpfiles.d/99-selinux.conf
           cmp cosign.pub <(git show "origin/${GITHUB_REF_NAME}:cosign.pub")
-          if git diff --cached --name-only | grep -Eq '^(.github/workflows/|cosign.pub$|README.md$|.*99-hci.*\.conf$)'; then
+          if git diff --cached --name-only | grep -Eq '^(.github/workflows/|cosign.pub$|README.md$|.*99-hci.*\.conf$|.*/00-hci\.preset$)'; then
             echo '::error::HCI-owned files were staged by upstream sync.' >&2
             exit 1
           fi
           test -z "$(git ls-files -u)"
           git -c core.whitespace=-blank-at-eol diff --cached --check
-          echo 'PASS: custom packages, Nautilus exclusion, signing key and workflow ownership preserved.'
+          echo 'PASS: custom packages, local service presets, upstream systemd fixes, signing key and workflow ownership preserved.'
